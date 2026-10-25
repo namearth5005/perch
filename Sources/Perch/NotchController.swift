@@ -1339,10 +1339,19 @@ final class NotchController: NSObject, WKScriptMessageHandler, WKNavigationDeleg
             let claimed = Set(projects.compactMap { $0.id == p.id ? nil : $0.pid })
             markSeen(p)
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let live = LiveSessions.all()
-                let hit = live.first { $0.pid == pid && $0.agent == agent } ?? live.first { $0.agent == agent && $0.argv.contains(id) }
+                let began = Date()
+                let found = LiveSessions.find(pid: pid, agent: agent, session: id)
+                let live = found.hits, hit = found.hit, looked = Date()
                 var done = false, unsure = false
-                if let hit { done = Terminals.type(line, into: hit) }
+                if let hit {
+                    done = Terminals.type(line, into: hit)
+                    if ProcessInfo.processInfo.environment["PERCH_TRACE"] != nil {
+                        NSLog("%@", String(format: "Perch reply timing: find %.1f ms (%@), type %.1f ms, typed %@", looked.timeIntervalSince(began) * 1000,
+                                           found.cached ? "cached scan" : "new scan", Date().timeIntervalSince(looked) * 1000, done ? "yes" : "no"))
+                    }
+                    // A hit from the cache that could not be typed into may have moved: the next reply scans again.
+                    if !done && found.cached { LiveSessions.cache.invalidate() }
+                }
                 else if live.contains(where: { $0.agent == agent && $0.cwd == cwd && !claimed.contains($0.pid) }) {
                     // It may still run there under a name Perch could not tie to it: opening it again would start a second
                     // copy, and typing into that one could answer another session. Your words wait on the clipboard.

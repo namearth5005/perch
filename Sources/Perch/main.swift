@@ -48,6 +48,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 print("running: \(hit.agent) pid \(hit.pid) in \(hit.cwd) on \(hit.tty), \(place), in \(hit.app ?? "no app")")
             }
             for v in viewers { print("\(v.tmux == nil ? "herdr" : "tmux") client: session \(v.session) on \(v.tty) in \(v.app ?? "no app")") }
+            // What a reply saves: a full scan against asking the scan it kept (a reply reaches for the second).
+            let scanStart = Date(); _ = LiveSessions.scan()
+            let scanMs = Date().timeIntervalSince(scanStart) * 1000
+            if let first = hits.first {
+                let findStart = Date(); let found = LiveSessions.find(pid: first.pid, agent: first.agent, session: "-")
+                print(String(format: "scan: %.1f ms; find from the kept scan: %.2f ms (%@)", scanMs, Date().timeIntervalSince(findStart) * 1000, found.cached ? "cached" : "rescanned"))
+            } else { print(String(format: "scan: %.1f ms", scanMs)) }
             print("speak up on its own now: \(Quiet.reason().map { "no, \($0)" } ?? "yes")")
             exit(0)
         }
