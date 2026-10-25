@@ -542,6 +542,26 @@ enum LiveSessions {
         var tmux: String? = nil, bin: String? = nil
     }
 
+    /// The last scan, for a reply or a pick up that needs one session: they ask `find` instead of walking the process table.
+    static let cache = ScanCache<Hit>()
+    /// How old the cached scan may be for `find` to answer from it. The scan the list runs every few seconds refreshes it, and
+    /// a hit is only used while its process still runs (`isAlive`), so this bounds how stale a hit's place (a tmux client) can be.
+    static let cacheMaxAge: TimeInterval = 10
+
+    /// The process of a cached hit is still the one that was scanned: it runs, and started when it did (not a reused pid).
+    static func isAlive(_ h: Hit) -> Bool {
+        var bsd = proc_bsdinfo()
+        guard proc_pidinfo(h.pid, PROC_PIDTBSDINFO, 0, &bsd, Int32(MemoryLayout<proc_bsdinfo>.size)) > 0 else { return false }
+        return bsd.pbi_status != UInt32(SZOMB) && Date(timeIntervalSince1970: Double(bsd.pbi_start_tvsec)) == h.started
+    }
+
+    /// The running session `pid` names (else the one whose arguments carry `session`) of `agent`: from the last scan while it
+    /// is young and the process still runs, else from a new scan. `hits` is what was scanned, for callers that look further.
+    static func find(pid: pid_t?, agent: String, session: String) -> (hit: Hit?, hits: [Hit], cached: Bool) {
+        cache.find(maxAge: cacheMaxAge, matching: [{ $0.pid == pid && $0.agent == agent }, { $0.agent == agent && $0.argv.contains(session) }],
+                   isAlive: isAlive, scan: all)
+    }
+
     /// Agent processes that have a terminal. The ones the Claude app, Codex app or OpenCode app start have none, so they are left out.
     static func all() -> [Hit] { scan().hits }
 
@@ -603,6 +623,7 @@ enum LiveSessions {
             return Hit(pid: f.pid, cwd: f.cwd, tty: f.tty, agent: f.agent.id, app: app, place: place, argv: f.args.argv, started: f.started,
                        viewer: viewer, bin: bin, tmuxSession: tmuxSession, warpFocus: WarpTabs.focusLink(f.args.environment))
         }
+        cache.store(hits)
         return (hits, viewers)
     }
 
